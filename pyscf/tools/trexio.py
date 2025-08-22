@@ -11,16 +11,9 @@ Installation instruction:
     https://github.com/TREX-CoE/trexio/blob/master/python/README.md
 '''
 
-# TODO
-## read UHF with a k grid
-## 2e AO
-## 1e MO
-## 1e AO
-
 import re
 import math
 import numpy as np
-import scipy.linalg
 from collections import defaultdict
 
 import pyscf
@@ -32,6 +25,8 @@ from pyscf import pbc
 from pyscf import mcscf
 from pyscf import fci
 from pyscf.pbc import gto as pbcgto
+from pyscf import ao2mo
+from pyscf.pbc import df as pbcdf
 
 import trexio
 
@@ -758,13 +753,171 @@ def scf_from_trexio(filename):
         else:
             raise ValueError(f'Unknown spin multiplicity {uniq}')
 
-def write_ao_2e_int_eri(eri, filename, backend='h5'):
-    raise NotImplementedError
+def write_scf_2e_int_eri(
+    mf, filename, backend='h5', basis='mo', mo_compact=True, aosym='s8',
+    df_engine='MDF',
+):
+    """
+    Write two-electron integrals (ERI) in AO or MO basis.
 
-def read_ao_2e_int_eri(filename):
-    raise NotImplementedError
+    Rules
+    -----
+    - Backend is real-only: complex ERIs are not supported.
+    - PBC: Only single-k Gamma is supported (non-Gamma -> NotImplementedError).
+    - Molecular RHF/RKS: AO and MO supported.
+    - Molecular/PBC UKS/UHF:
+        * AO: spin-independent (single tensor).
+        * MO: build a combined MO space by column-wise concatenation [alpha | beta]
+        and compute full ERIs including cross-spin terms.
 
-def write_mo_2e_int_eri(eri, filename, backend='h5'):
+    Notes
+    -----
+    - Immediately before writing, arrays are forced to be C-contiguous *without*
+        changing dtype:
+        np.ascontiguousarray(arr)
+    """
+
+    # ----- internal constants -----
+    TOL_IMAG = 1e-12  # drop imag parts <= this; otherwise raise (real-only backend)
+
+    basis = basis.upper()
+    if aosym not in ('s8', 's4', 's1'):
+        raise ValueError("aosym must be one of {'s8','s4','s1'}")
+    is_pbc = hasattr(mf, 'cell')
+
+    # ---------- helpers ----------
+    def _is_gamma_single_k(mf_obj) -> bool:
+        """True if this PBC calculation is single-k at Gamma."""
+        if not hasattr(mf_obj, 'cell'):
+            return False
+        if hasattr(mf_obj, 'kpt'):
+            return np.allclose(np.asarray(mf_obj.kpt), 0.0)
+        if hasattr(mf_obj, 'kpts'):
+            kpts = np.asarray(mf_obj.kpts)
+            return (kpts.shape[0] == 1) and np.allclose(kpts[0], 0.0)
+        return True  # treat no-kpt attribute as Gamma
+
+    def _ensure_real(x):
+        """Ensure array is real; drop tiny imaginary part else raise (dtype preserved)."""
+        if np.iscomplexobj(x):
+            if np.all(np.abs(np.imag(x)) <= TOL_IMAG):
+                # np.real keeps precision: complex128->float64, complex64->float32
+                x = np.real(x)
+            else:
+                raise NotImplementedError(
+                    "Complex ERI encountered but the backend is real-only. "
+                    "Use Gamma-point (k=0) or a complex-capable backend."
+                )
+        return x
+
+    def _df_obj():
+        """Construct a DF engine for PBC Γ-point."""
+        if df_engine.upper() == 'MDF':
+            return pbcdf.MDF(mf.cell).build()
+        if df_engine.upper() == 'GDF':
+            return pbcdf.GDF(mf.cell).build()
+        raise ValueError("df_engine must be 'MDF' or 'GDF'.")
+
+    def _get_uks_coeff_pair(mf_obj):
+        """
+        Extract (Ca, Cb) as 2D arrays (nao, nalpha), (nao, nbeta), squeezing possible k-dims.
+        Supports:
+            - list/tuple: (Ca, Cb)
+            - ndarray shapes: (2, nao, nmo) or (2, 1, nao, nmo)
+        """
+        C = mf_obj.mo_coeff
+        if isinstance(C, (list, tuple)) and len(C) == 2:
+            Ca, Cb = C
+        elif isinstance(C, np.ndarray) and C.ndim >= 3 and C.shape[0] == 2:
+            if C.ndim == 3:
+                Ca, Cb = C[0], C[1]
+            elif C.ndim == 4:
+                if C.shape[1] != 1:
+                    raise NotImplementedError("Only single-k UKS/UHF is supported.")
+                Ca, Cb = C[0, 0], C[1, 0]
+            else:
+                raise ValueError(f"Unexpected mo_coeff shape: {C.shape}")
+        else:
+            raise TypeError("Not a UKS/UHF object or unsupported mo_coeff layout.")
+        if Ca.ndim != 2 or Cb.ndim != 2:
+            raise ValueError(f"Unexpected UKS/UHF mo_coeff shapes: Ca {Ca.shape}, Cb {Cb.shape}")
+        return Ca, Cb
+
+    # ---------------------
+    # MO-basis ERI writing
+    # ---------------------
+    if basis == 'MO':
+        # Molecular
+        if not is_pbc:
+            if (isinstance(mf.mo_coeff, (list, tuple)) or
+                (isinstance(mf.mo_coeff, np.ndarray) and mf.mo_coeff.ndim >= 3 and mf.mo_coeff.shape[0] == 2)):
+                # UKS/UHF → concatenate [alpha | beta], include cross-spin terms
+                Ca, Cb = _get_uks_coeff_pair(mf)
+                C = np.concatenate([Ca, Cb], axis=1)  # (nao, nalpha+nbeta)
+                if getattr(mf, '_eri', None) is not None:
+                    eri_mo = ao2mo.incore.full(mf._eri, C, compact=mo_compact)
+                else:
+                    eri_mo = ao2mo.kernel(mf.mol, C, compact=mo_compact)
+                eri_mo = _ensure_real(eri_mo)
+                _write_2e_int_eri(np.ascontiguousarray(eri_mo), filename, backend, 'MO')
+            else:  # RHF/RKS
+                C = mf.mo_coeff
+                if getattr(mf, '_eri', None) is not None:
+                    eri_mo = ao2mo.incore.full(mf._eri, C, compact=mo_compact)
+                else:
+                    eri_mo = ao2mo.kernel(mf.mol, C, compact=mo_compact)
+                eri_mo = _ensure_real(eri_mo)
+                _write_2e_int_eri(np.ascontiguousarray(eri_mo), filename, backend, 'MO')
+            return
+
+        # PBC (Gamma only)
+        if not _is_gamma_single_k(mf):
+            raise NotImplementedError("PBC MO-ERI: non-Gamma k-points are not supported (real-only backend).")
+        dfobj = _df_obj()
+
+        if (isinstance(mf.mo_coeff, (list, tuple)) or
+            (isinstance(mf.mo_coeff, np.ndarray) and mf.mo_coeff.ndim >= 3 and mf.mo_coeff.shape[0] == 2)):
+            # UKS/UHF @ Γ: combined MO matrix [Ca | Cb]
+            Ca, Cb = _get_uks_coeff_pair(mf)
+            C = np.concatenate([Ca, Cb], axis=1)
+            eri_mo = dfobj.get_mo_eri((C, C, C, C))
+            eri_mo = _ensure_real(eri_mo)
+            _write_2e_int_eri(np.ascontiguousarray(eri_mo), filename, backend, 'MO')
+        else:  # RHF/RKS @ Γ
+            C = mf.mo_coeff
+            if C.ndim == 3 and C.shape[0] == 1:  # normalize (1,nao,nmo) -> (nao,nmo)
+                C = C[0]
+            eri_mo = dfobj.get_mo_eri((C, C, C, C))
+            eri_mo = _ensure_real(eri_mo)
+            _write_2e_int_eri(np.ascontiguousarray(eri_mo), filename, backend, 'MO')
+        return
+
+    # ---------------------
+    # AO-basis ERI writing (spin-independent even for UKS/UHF)
+    # ---------------------
+    if is_pbc:
+        # PBC AO: Γ only via DF (real-only)
+        if not _is_gamma_single_k(mf):
+            raise NotImplementedError("PBC AO-ERI: non-Gamma k-points are not supported (real-only backend).")
+        dfobj = _df_obj()
+        eri2 = pbcdf.df_ao2mo.get_eri(dfobj, compact=False)  # (nao^2, nao^2)
+        nao = mf.cell.nao_nr()
+        if eri2.shape != (nao * nao, nao * nao):
+            raise RuntimeError(f"Unexpected ERI shape {eri2.shape}; expected ({nao*nao}, {nao*nao}) at Gamma.")
+        eri_ao = eri2.reshape(nao, nao, nao, nao)
+        eri_ao = _ensure_real(eri_ao)
+        _write_2e_int_eri(np.ascontiguousarray(eri_ao), filename, backend, 'AO')
+    else:
+        # Molecular AO
+        eri_ao = getattr(mf, '_eri', None)
+        if eri_ao is None:
+            # 'int2e' follows mol.cart automatically (spherical vs Cartesian)
+            eri_ao = mf.mol.intor('int2e', aosym=aosym)
+        eri_ao = _ensure_real(eri_ao)
+        _write_2e_int_eri(np.ascontiguousarray(eri_ao), filename, backend, 'AO')
+
+def _write_2e_int_eri(eri, filename, backend='h5', basis='mo'):
+    assert basis.upper() in ['MO','AO']
     num_integrals = eri.size
     if eri.ndim == 4:
         n = eri.shape[0]
@@ -792,23 +945,14 @@ def write_mo_2e_int_eri(eri, filename, backend='h5'):
     idx=idx.reshape((num_integrals,4))
     for i in range(num_integrals):
         idx[i,1],idx[i,2]=idx[i,2],idx[i,1]
-
     idx=idx.flatten()
 
+    # write ERI
     with trexio.File(filename, 'w', back_end=_mode(backend)) as tf:
-        trexio.write_mo_2e_int_eri(tf, 0, num_integrals, idx, eri.ravel())
-
-def read_mo_2e_int_eri(filename):
-    with trexio.File(filename, 'r', back_end=trexio.TREXIO_AUTO) as tf:
-        nmo = trexio.read_mo_num(tf)
-        nao_pair = nmo * (nmo+1) // 2
-        eri_size = nao_pair * (nao_pair+1) // 2
-        idx, data, n_read, eof_flag = trexio.read_mo_2e_int_eri(tf, 0, eri_size)
-    eri = np.zeros(eri_size)
-    x = idx[:,0]*(idx[:,0]+1)//2 + idx[:,2]
-    y = idx[:,1]*(idx[:,1]+1)//2 + idx[:,3]
-    eri[x*(x+1)//2+y] = data
-    return eri
+        if basis.upper() == 'MO':
+            trexio.write_mo_2e_int_eri(tf, 0, num_integrals, idx, eri.ravel())
+        else:
+            trexio.write_ao_2e_int_eri(tf, 0, num_integrals, idx, eri.ravel())
 
 def _order_ao_index(mol):
     if mol.cart:
