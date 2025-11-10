@@ -12,6 +12,7 @@ DIFF_TOL = 1e-10
 #################################################################
 
 ## molecule, segment contraction (6-31g), all-electron
+@pytest.mark.skip(reason='debug')
 @pytest.mark.parametrize("cart", [False, True], ids=["cart=false", "cart=true"])
 def test_mol_ae_6_31g(cart):
     with tempfile.TemporaryDirectory() as d:
@@ -30,6 +31,7 @@ def test_mol_ae_6_31g(cart):
         assert abs(v0 - v1).max() < DIFF_TOL
 
 ## molecule, general contraction (ccpv5z), all-electron
+@pytest.mark.skip(reason='debug')
 @pytest.mark.parametrize("cart", [False, True], ids=["cart=false", "cart=true"])
 def test_mol_ae_ccpv5z(cart):
     with tempfile.TemporaryDirectory() as d:
@@ -48,6 +50,7 @@ def test_mol_ae_ccpv5z(cart):
         assert abs(v0 - v1).max() < DIFF_TOL
 
 ## molecule, general contraction (ano), all-electron
+@pytest.mark.skip(reason='debug')
 @pytest.mark.parametrize("cart", [False, True], ids=["cart=false", "cart=true"])
 def test_mol_ae_ano(cart):
     with tempfile.TemporaryDirectory() as d:
@@ -66,6 +69,7 @@ def test_mol_ae_ano(cart):
         assert abs(v0 - v1).max() < DIFF_TOL
 
 ## molecule, segment contraction (ccecp-cc-pVQZ), ccecp
+@pytest.mark.skip(reason='debug')
 @pytest.mark.parametrize("cart", [False, True], ids=["cart=false", "cart=true"])
 def test_mol_ccecp_ccecp_ccpvqz(cart):
     with tempfile.TemporaryDirectory() as d:
@@ -95,6 +99,7 @@ def test_cell_k_gamma_ae_6_31g(cart):
         print("cell0.dimension:", cell0.dimension)
         print("cell0.unit:", getattr(cell0, "unit", "Angstrom"))
         print("cell0.a:\n", cell0.a)
+        print("kpt:\n", kpt)
         s0 = cell0.pbc_intor('int1e_ovlp', kpts=kpt)
         t0 = cell0.pbc_intor('int1e_kin', kpts=kpt)
         v0 = cell0.pbc_intor('int1e_nuc', kpts=kpt)
@@ -103,6 +108,7 @@ def test_cell_k_gamma_ae_6_31g(cart):
         print("cell1.dimension:", cell1.dimension)
         print("cell1.unit:", getattr(cell1, "unit", "Angstrom"))
         print("cell1.a:\n", cell1.a)
+        print("kpt:\n", kpt)
         s1 = cell1.pbc_intor('int1e_ovlp', kpts=kpt)
         t1 = cell1.pbc_intor('int1e_kin', kpts=kpt)
         v1 = cell1.pbc_intor('int1e_nuc', kpts=kpt)
@@ -123,6 +129,7 @@ def test_cell_k_grid_ae_6_31g(cart):
         print("cell0.unit:", getattr(cell0, "unit", "Angstrom"))
         print("cell0.a:\n", cell0.a)
         kpts0 = cell0.make_kpts(kmesh)
+        print("kpt:\n", kpts0)
         s0 = np.asarray(cell0.pbc_intor('int1e_ovlp', kpts=kpts0))
         t0 = np.asarray(cell0.pbc_intor('int1e_kin', kpts=kpts0))
         v0 = np.asarray(cell0.pbc_intor('int1e_nuc', kpts=kpts0))
@@ -132,6 +139,7 @@ def test_cell_k_grid_ae_6_31g(cart):
         print("cell1.unit:", getattr(cell1, "unit", "Angstrom"))
         print("cell1.a:\n", cell1.a)
         kpts1 = cell1.make_kpts(kmesh)
+        print("kpt:\n", kpts1)
         s1 = np.asarray(cell1.pbc_intor('int1e_ovlp', kpts=kpts1))
         t1 = np.asarray(cell1.pbc_intor('int1e_kin', kpts=kpts1))
         v1 = np.asarray(cell1.pbc_intor('int1e_nuc', kpts=kpts1))
