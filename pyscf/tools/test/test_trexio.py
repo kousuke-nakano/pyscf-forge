@@ -5,6 +5,7 @@ import numpy as np
 import tempfile
 import pytest
 
+ANGSTROM_TO_BOHR = 1.0 / 0.5291772083
 DIFF_TOL = 1e-10
 
 #################################################################
@@ -95,7 +96,7 @@ def test_cell_k_gamma_ae_6_31g(cart):
         filename = os.path.join(d, 'test.h5')
         cell0 = pyscf.pbc.gto.Cell()
         cell0.cart = cart
-        cell0.build(atom='H 0 0 0; H 0 0 1', basis='6-31g**', a=np.diag([3.0, 3.0, 5.0]))
+        cell0.build(atom='H 0 0 0; H 0 0 1', basis='6-31g**', a=np.diag([3.0, 3.0, 5.0])*ANGSTROM_TO_BOHR, unit="Bohr")
         print("cell0.dimension:", cell0.dimension)
         print("cell0.unit:", getattr(cell0, "unit", "Angstrom"))
         print("cell0.a:\n", cell0.a)
@@ -114,7 +115,7 @@ def test_cell_k_gamma_ae_6_31g(cart):
         v1 = cell1.pbc_intor('int1e_nuc', kpts=kpt)
         assert abs(s0 - s1).max() < DIFF_TOL
         assert abs(t0 - t1).max() < DIFF_TOL
-        #assert abs(v0 - v1).max() < DIFF_TOL
+        assert abs(v0 - v1).max() < DIFF_TOL
 
 ## PBC, k=grid, segment contraction (6-31g), all-electron
 @pytest.mark.parametrize("cart", [False, True], ids=["cart=false", "cart=true"])
@@ -124,7 +125,7 @@ def test_cell_k_grid_ae_6_31g(cart):
         filename = os.path.join(d, 'test.h5')
         cell0 = pyscf.pbc.gto.Cell()
         cell0.cart = cart
-        cell0.build(atom='H 0 0 0; H 0 0 1', basis='6-31g**', a=np.diag([3.0, 3.0, 5.0]))
+        cell0.build(atom='H 0 0 0; H 0 0 1', basis='6-31g**', a=np.diag([3.0, 3.0, 5.0])*ANGSTROM_TO_BOHR, unit="Bohr")
         print("cell0.dimension:", cell0.dimension)
         print("cell0.unit:", getattr(cell0, "unit", "Angstrom"))
         print("cell0.a:\n", cell0.a)
@@ -145,7 +146,7 @@ def test_cell_k_grid_ae_6_31g(cart):
         v1 = np.asarray(cell1.pbc_intor('int1e_nuc', kpts=kpts1))
         assert abs(s0 - s1).max() < DIFF_TOL
         assert abs(t0 - t1).max() < DIFF_TOL
-        #assert abs(v0 - v1).max() < DIFF_TOL
+        assert abs(v0 - v1).max() < DIFF_TOL
 
 #################################################################
 # reading/writing `mf` from/to trexio file
