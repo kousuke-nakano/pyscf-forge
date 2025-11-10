@@ -113,13 +113,6 @@ def test_cell_k_gamma_ae_6_31g(cart):
 ## PBC, k=grid, segment contraction (6-31g), all-electron
 @pytest.mark.parametrize("cart", [False, True], ids=["cart=false", "cart=true"])
 def test_cell_k_grid_ae_6_31g(cart):
-    import sys, numpy as np, pyscf, trexio, h5py
-    print("Python:", sys.version)
-    print("NumPy:", np.__version__)
-    print("PySCF:", pyscf.__version__)
-    print("TREXIO:", getattr(trexio, "__version__", "unknown"))
-    print("h5py:", h5py.__version__)
-
     with tempfile.TemporaryDirectory() as d:
         kmesh = (1, 1, 2)
         filename = os.path.join(d, 'test.h5')
