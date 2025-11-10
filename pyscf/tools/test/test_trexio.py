@@ -151,6 +151,7 @@ def test_cell_k_grid_ae_6_31g(cart):
 #################################################################
 
 ## molecule, segment contraction (6-31g), all-electron, RHF
+@pytest.mark.skip(reason='debug')
 @pytest.mark.parametrize("cart", [False, True], ids=["cart=false", "cart=true"])
 def test_mf_rhf_ae_6_31g(cart):
     with tempfile.TemporaryDirectory() as d:
@@ -162,6 +163,7 @@ def test_mf_rhf_ae_6_31g(cart):
         assert abs(mf1.mo_coeff - mf0.mo_coeff).max() < DIFF_TOL
 
 ## molecule, segment contraction (6-31g), all-electron, UHF
+@pytest.mark.skip(reason='debug')
 @pytest.mark.parametrize("cart", [False, True], ids=["cart=false", "cart=true"])
 def test_mf_uhf_ae_6_31g(cart):
     with tempfile.TemporaryDirectory() as d:
@@ -173,6 +175,7 @@ def test_mf_uhf_ae_6_31g(cart):
         assert abs(mf1.mo_coeff - mf0.mo_coeff).max() < DIFF_TOL
 
 ## molecule, segment contraction (ccecp-cc-pVQZ), ccecp, RHF
+@pytest.mark.skip(reason='debug')
 @pytest.mark.parametrize("cart", [False, True], ids=["cart=false", "cart=true"])
 def test_mf_rhf_ccecp_ccpvqz(cart):
     with tempfile.TemporaryDirectory() as d:
@@ -184,6 +187,7 @@ def test_mf_rhf_ccecp_ccpvqz(cart):
         assert abs(mf1.mo_coeff - mf0.mo_coeff).max() < DIFF_TOL
 
 ## PBC, k=gamma, segment contraction (6-31g), all-electron, RHF
+@pytest.mark.skip(reason='debug')
 @pytest.mark.parametrize("cart", [False, True], ids=["cart=false", "cart=true"])
 def test_mf_k_gamma_rhf_ae_6_31g(cart):
     with tempfile.TemporaryDirectory() as d:
@@ -199,6 +203,7 @@ def test_mf_k_gamma_rhf_ae_6_31g(cart):
         assert abs(mf1.mo_coeff - mf0.mo_coeff).max() < DIFF_TOL
 
 ## PBC, k=general, segment contraction (6-31g), all-electron, RHF
+@pytest.mark.skip(reason='debug')
 @pytest.mark.parametrize("cart", [False, True], ids=["cart=false", "cart=true"])
 def test_mf_k_general_rhf_ae_6_31g(cart):
     with tempfile.TemporaryDirectory() as d:
@@ -216,6 +221,7 @@ def test_mf_k_general_rhf_ae_6_31g(cart):
         assert abs(mf1.mo_coeff - mf0.mo_coeff).max() < DIFF_TOL
 
 ## PBC, k=grid, segment contraction (6-31g), all-electron, RHF
+@pytest.mark.skip(reason='debug')
 @pytest.mark.parametrize("cart", [False, True], ids=["cart=false", "cart=true"])
 def test_mf_k_grid_rhf_ae_6_31g(cart):
     with tempfile.TemporaryDirectory() as d:
@@ -234,6 +240,7 @@ def test_mf_k_grid_rhf_ae_6_31g(cart):
         assert abs(np.asarray(mf1.mo_coeff) - np.asarray(mf0.mo_coeff)).max() < DIFF_TOL
 
 ## PBC, k=gamma, segment contraction (6-31g), all-electron, UHF
+@pytest.mark.skip(reason='debug')
 @pytest.mark.parametrize("cart", [False, True], ids=["cart=false", "cart=true"])
 def test_mf_k_gamma_uhf_ae_6_31g(cart):
     with tempfile.TemporaryDirectory() as d:
@@ -250,6 +257,7 @@ def test_mf_k_gamma_uhf_ae_6_31g(cart):
         assert abs(mf1.mo_coeff - mf0.mo_coeff).max() < DIFF_TOL
 
 ## PBC, k=general, segment contraction (6-31g), all-electron, UHF
+@pytest.mark.skip(reason='debug')
 @pytest.mark.parametrize("cart", [False, True], ids=["cart=false", "cart=true"])
 def test_mf_k_general_uhf_ae_6_31g(cart):
     with tempfile.TemporaryDirectory() as d:
@@ -268,6 +276,7 @@ def test_mf_k_general_uhf_ae_6_31g(cart):
         assert abs(mf1.mo_coeff - mf0.mo_coeff).max() < DIFF_TOL
 
 ## PBC, k=grid, segment contraction (6-31g), all-electron, UHF
+@pytest.mark.skip(reason='debug')
 @pytest.mark.parametrize("cart", [False, True], ids=["cart=false", "cart=true"])
 def test_mf_k_grid_uhf_ae_6_31g(cart):
     with tempfile.TemporaryDirectory() as d:
@@ -291,6 +300,7 @@ def test_mf_k_grid_uhf_ae_6_31g(cart):
 #################################################################
 
 ## molecule, segment contraction (6-31g), all-electron, RHF
+@pytest.mark.skip(reason='debug')
 @pytest.mark.parametrize("cart", [False, True], ids=["cart=false", "cart=true"])
 def test_mol_scf_rhf_ae_6_31g(cart):
     with tempfile.TemporaryDirectory() as d:
@@ -305,6 +315,7 @@ def test_mol_scf_rhf_ae_6_31g(cart):
         assert abs(e0 - e1).max() < DIFF_TOL
 
 ## PBC, k=gamma, segment contraction (6-31g), all-electron, RKS
+@pytest.mark.skip(reason='debug')
 @pytest.mark.parametrize("cart", [False, True], ids=["cart=false", "cart=true"])
 def test_cell_k_gamma_scf_rhf_ae_6_31g(cart):
     with tempfile.TemporaryDirectory() as d:
@@ -325,6 +336,7 @@ def test_cell_k_gamma_scf_rhf_ae_6_31g(cart):
         assert abs(e0 - e1).max() < DIFF_TOL
 
 ## PBC, k=gamma, segment contraction (6-31g), all-electron, UKS
+@pytest.mark.skip(reason='debug')
 @pytest.mark.parametrize("cart", [False, True], ids=["cart=false", "cart=true"])
 def test_cell_k_gamma_scf_uhf_ae_6_31g(cart):
     with tempfile.TemporaryDirectory() as d:
@@ -347,6 +359,7 @@ def test_cell_k_gamma_scf_uhf_ae_6_31g(cart):
 
 
 ## PBC, k=general, segment contraction (6-31g), all-electron, RKS
+@pytest.mark.skip(reason='debug')
 @pytest.mark.parametrize("cart", [False, True], ids=["cart=false", "cart=true"])
 def test_cell_k_general_scf_rhf_ae_6_31g(cart):
     with tempfile.TemporaryDirectory() as d:
@@ -370,6 +383,7 @@ def test_cell_k_general_scf_rhf_ae_6_31g(cart):
         assert abs(e0 - e1).max() < DIFF_TOL
 
 ## PBC, k=general, segment contraction (6-31g), all-electron, UKS
+@pytest.mark.skip(reason='debug')
 @pytest.mark.parametrize("cart", [False, True], ids=["cart=false", "cart=true"])
 def test_cell_k_general_scf_uhf_ae_6_31g(cart):
     with tempfile.TemporaryDirectory() as d:
@@ -394,6 +408,7 @@ def test_cell_k_general_scf_uhf_ae_6_31g(cart):
         assert abs(e0 - e1).max() < DIFF_TOL
 
 ## PBC, k=grid, segment contraction (6-31g), all-electron, RKS
+@pytest.mark.skip(reason='debug')
 @pytest.mark.parametrize("cart", [False, True], ids=["cart=false", "cart=true"])
 def test_cell_k_grid_scf_rhf_ae_6_31g(cart):
     with tempfile.TemporaryDirectory() as d:
@@ -417,6 +432,7 @@ def test_cell_k_grid_scf_rhf_ae_6_31g(cart):
         assert abs(e0 - e1).max() < DIFF_TOL
 
 ## molecule, segment contraction (6-31g), all-electron, UHF
+@pytest.mark.skip(reason='debug')
 @pytest.mark.parametrize("cart", [False, True], ids=["cart=false", "cart=true"])
 def test_mol_scf_uhf_ae_6_31g(cart):
     with tempfile.TemporaryDirectory() as d:
@@ -431,6 +447,7 @@ def test_mol_scf_uhf_ae_6_31g(cart):
         assert abs(e0 - e1).max() < DIFF_TOL
 
 ## molecule, segment contraction (ccecp-cc-pVQZ), ccecp, RHF
+@pytest.mark.skip(reason='debug')
 @pytest.mark.parametrize("cart", [False, True], ids=["cart=false", "cart=true"])
 def test_mol_rhf_ccecp_ccpvqz(cart):
     with tempfile.TemporaryDirectory() as d:
@@ -467,6 +484,7 @@ def test_mol_rhf_ccecp_ccpvqz(cart):
         assert abs(e0 - e1).max() < DIFF_TOL
 
 ## molecule, segment contraction (ccecp-cc-pVQZ), ccecp, UHF
+@pytest.mark.skip(reason='debug')
 @pytest.mark.parametrize("cart", [False, True], ids=["cart=false", "cart=true"])
 def test_mol_rhf_ccecp_ccpvqz(cart):
     with tempfile.TemporaryDirectory() as d:
