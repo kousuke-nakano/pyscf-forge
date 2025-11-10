@@ -97,6 +97,7 @@ def test_cell_k_gamma_ae_6_31g(cart):
         cell0 = pyscf.pbc.gto.Cell()
         cell0.cart = cart
         cell0.build(atom='H 0 0 0; H 0 0 1', basis='6-31g**', a=np.diag([3.0, 3.0, 5.0])*ANGSTROM_TO_BOHR, unit="Bohr")
+        print("cell0.nuc_mod:", getattr(cell0, "nuc_mod", "ewald"))
         print("cell0.dimension:", cell0.dimension)
         print("cell0.unit:", getattr(cell0, "unit", "Angstrom"))
         print("cell0.a:\n", cell0.a)
@@ -109,6 +110,7 @@ def test_cell_k_gamma_ae_6_31g(cart):
         trexio.to_trexio(cell0, filename)
         cell1 = trexio.mol_from_trexio(filename)
         cell1.build()
+        print("cell1.nuc_mod:", getattr(cell1, "nuc_mod", "ewald"))
         print("cell1.dimension:", cell1.dimension)
         print("cell1.unit:", getattr(cell1, "unit", "Angstrom"))
         print("cell1.a:\n", cell1.a)
@@ -131,6 +133,7 @@ def test_cell_k_grid_ae_6_31g(cart):
         cell0 = pyscf.pbc.gto.Cell()
         cell0.cart = cart
         cell0.build(atom='H 0 0 0; H 0 0 1', basis='6-31g**', a=np.diag([3.0, 3.0, 5.0])*ANGSTROM_TO_BOHR, unit="Bohr")
+        print("cell0.nuc_mod:", getattr(cell0, "nuc_mod", "ewald"))
         print("cell0.dimension:", cell0.dimension)
         print("cell0.unit:", getattr(cell0, "unit", "Angstrom"))
         print("cell0.a:\n", cell0.a)
@@ -144,6 +147,7 @@ def test_cell_k_grid_ae_6_31g(cart):
         trexio.to_trexio(cell0, filename)
         cell1 = trexio.mol_from_trexio(filename)
         cell1.build()
+        print("cell1.nuc_mod:", getattr(cell1, "nuc_mod", "ewald"))
         print("cell1.dimension:", cell1.dimension)
         print("cell1.unit:", getattr(cell1, "unit", "Angstrom"))
         print("cell1.a:\n", cell1.a)
