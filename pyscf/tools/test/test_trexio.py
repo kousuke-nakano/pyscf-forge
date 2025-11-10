@@ -107,20 +107,32 @@ def test_cell_k_gamma_ae_6_31g(cart):
 ## PBC, k=grid, segment contraction (6-31g), all-electron
 @pytest.mark.parametrize("cart", [False, True], ids=["cart=false", "cart=true"])
 def test_cell_k_grid_ae_6_31g(cart):
+    import sys, numpy as np, pyscf, trexio, h5py
+    print("Python:", sys.version)
+    print("NumPy:", np.__version__)
+    print("PySCF:", pyscf.__version__)
+    print("TREXIO:", getattr(trexio, "__version__", "unknown"))
+    print("h5py:", h5py.__version__)
+
     with tempfile.TemporaryDirectory() as d:
         kmesh = (1, 1, 2)
         filename = os.path.join(d, 'test.h5')
         cell0 = pyscf.pbc.gto.Cell()
         cell0.cart = cart
         cell0.build(atom='H 0 0 0; H 0 0 1', basis='6-31g**', a=np.diag([3.0, 3.0, 5.0]))
+        print("cell0.dimension:", cell0.dimension)
+        print("cell0.unit:", getattr(cell0, "unit", "Angstrom"))
+        print("cell0.a:\n", cell0.a)
         kpts0 = cell0.make_kpts(kmesh)
         s0 = np.asarray(cell0.pbc_intor('int1e_ovlp', kpts=kpts0))
         t0 = np.asarray(cell0.pbc_intor('int1e_kin', kpts=kpts0))
         v0 = np.asarray(cell0.pbc_intor('int1e_nuc', kpts=kpts0))
         trexio.to_trexio(cell0, filename)
         cell1 = trexio.mol_from_trexio(filename)
-        kpts1 = kpts0
-        #kpts1 = cell1.make_kpts(kmesh)
+        print("cell1.dimension:", cell1.dimension)
+        print("cell1.unit:", getattr(cell1, "unit", "Angstrom"))
+        print("cell1.a:\n", cell1.a)
+        kpts1 = cell1.make_kpts(kmesh)
         s1 = np.asarray(cell1.pbc_intor('int1e_ovlp', kpts=kpts1))
         t1 = np.asarray(cell1.pbc_intor('int1e_kin', kpts=kpts1))
         v1 = np.asarray(cell1.pbc_intor('int1e_nuc', kpts=kpts1))
