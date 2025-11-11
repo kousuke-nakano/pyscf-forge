@@ -233,7 +233,11 @@ def test_cell_k_gamma_ae_6_31g(cart):
         print("mesh:", getattr(cell0, "mesh", None), getattr(cell1, "mesh", None))
         print("cart:", cell0.cart, cell1.cart)
         np.testing.assert_array_equal(cell0.atom_charges(), cell1.atom_charges())
-        np.testing.assert_allclose(cell0.bas_coords(), cell1.bas_coords(), rtol=0, atol=0)
+        nbas = cell1.nbas
+        bas_centers0 = np.array([cell0.bas_coord(i) for i in range(nbas)])
+        nbas = cell1.nbas
+        bas_centers1 = np.array([cell1.bas_coord(i) for i in range(nbas)])
+        np.testing.assert_allclose(bas_centers0, bas_centers1, rtol=0, atol=0)
         np.testing.assert_equal(cell0._bas, cell1._bas)
 
         assert abs(s0 - s1).max() < DIFF_TOL
