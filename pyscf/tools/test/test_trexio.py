@@ -381,10 +381,6 @@ def test_cell_k_gamma_ae_6_31g(cart):
         # 2) Ewald/精度パラメータを同期して核項キャッシュを再生成
         sync_ewald_params(cell0, cell1)
         
-        # 3) 念のため単スレッド化（非決定性の排除）
-        import os
-        os.environ.setdefault("OMP_NUM_THREADS", "1")
-        
         # 4) 比較
         ds, dt, dv = check_V_matches(cell0, cell1, kpt=np.zeros(3), tol=1e-10)
         print(f"max|ΔS|={ds:.3e}, max|ΔT|={dt:.3e}, max|ΔV|={dv:.3e}")
