@@ -950,7 +950,13 @@ def _write_2e_int_eri(eri, filename, backend='h5', basis='mo'):
     idx=idx.flatten()
 
     # write ERI
-    with trexio.File(filename, 'w', back_end=_mode(backend)) as tf:
+    with trexio.File(filename, 'u', back_end=_mode(backend)) as tf:
+        if basis.upper() == 'AO':
+            if not trexio.has_ao_num(tf):
+                trexio.write_ao_num(tf, n)
+        else:
+            if not trexio.has_mo_num(tf):
+                trexio.write_mo_num(tf, n)
         if basis.upper() == 'MO':
             trexio.write_mo_2e_int_eri(tf, 0, num_integrals, idx, eri.ravel())
         else:
@@ -1063,6 +1069,228 @@ def read_det_trexio(filename):
         coeff = trexio.read_determinant_coefficient(tf, offset_file, num_det)
         det = trexio.read_determinant_list(tf, offset_file, num_det)
         return num_det, coeff, det
+
+def write_scf_1e_int_eri(
+    mf, filename, backend='h5', basis='AO', df_engine='MDF',
+):
+    """
+    Write one-electron integrals (overlap, kinetic, nuclear-electron potential,
+    and core Hamiltonian) in AO or MO basis.
+
+    Rules
+    -----
+    - Backend is real-only: negligible imaginary parts are discarded, otherwise
+      a NotImplementedError is raised.
+    - PBC: only single-k Gamma calculations are supported.
+    - MO basis: UHF/UKS uses a concatenated MO matrix [alpha | beta].
+    """
+
+    TOL_IMAG = 1e-12
+    basis = basis.upper()
+    if basis not in ('AO', 'MO'):
+        raise ValueError("basis must be either 'AO' or 'MO'")
+
+    def _ensure_real(x):
+        if np.iscomplexobj(x):
+            if np.all(np.abs(np.imag(x)) <= TOL_IMAG):
+                x = np.real(x)
+            else:
+                raise NotImplementedError(
+                    "Complex one-electron integrals encountered but the backend is real-only."
+                )
+        return x
+
+    def _is_gamma_single_k(mf_obj) -> bool:
+        if not hasattr(mf_obj, 'cell'):
+            return False
+        if hasattr(mf_obj, 'kpt'):
+            return np.allclose(np.asarray(mf_obj.kpt), 0.0)
+        if hasattr(mf_obj, 'kpts'):
+            kpts = np.asarray(mf_obj.kpts)
+            return (kpts.shape[0] == 1) and np.allclose(kpts[0], 0.0)
+        return True
+
+    def _as_matrix(mat, label):
+        if isinstance(mat, (tuple, list)):
+            if len(mat) == 0:
+                raise ValueError(f"Empty data for {label}")
+            if len(mat) > 1:
+                raise NotImplementedError(
+                    f"{label}: multiple blocks are not supported in this helper"
+                )
+            mat = mat[0]
+        mat = np.asarray(mat)
+        if mat.ndim == 3:
+            if mat.shape[0] != 1:
+                raise NotImplementedError(
+                    f"{label}: Gamma-only support; received shape {mat.shape}"
+                )
+            mat = mat[0]
+        if mat.ndim != 2:
+            raise ValueError(f"{label} must be a 2D matrix, got shape {mat.shape}")
+        return mat
+
+    def _hermitize(mat):
+        return 0.5 * (mat + mat.T.conj())
+
+    is_pbc = hasattr(mf, 'cell')
+
+    if is_pbc:
+        if not _is_gamma_single_k(mf):
+            raise NotImplementedError(
+                "PBC one-electron integrals are implemented for Gamma-point only."
+            )
+
+        cell = mf.cell
+        overlap = _as_matrix(mf.get_ovlp(), 'AO overlap')
+        kinetic = _as_matrix(cell.pbc_intor('int1e_kin', 1, 1), 'AO kinetic')
+
+        df_builder = getattr(mf, 'with_df', None)
+        if df_builder is None:
+            if df_engine.upper() == 'MDF':
+                df_builder = pbcdf.MDF(cell).build()
+            elif df_engine.upper() == 'GDF':
+                df_builder = pbcdf.GDF(cell).build()
+            else:
+                raise ValueError("df_engine must be 'MDF' or 'GDF'")
+        else:
+            df_builder = df_builder.build()
+
+        if cell.pseudo:
+            potential = _as_matrix(df_builder.get_pp(), 'AO potential')
+        else:
+            potential = _as_matrix(df_builder.get_nuc(), 'AO potential')
+
+        if len(getattr(cell, '_ecpbas', [])) > 0:
+            from pyscf.pbc.gto import ecp
+            potential += _as_matrix(ecp.ecp_int(cell), 'AO ECP potential')
+
+        core = kinetic + potential
+    else:
+        mol = mf.mol
+        overlap = _as_matrix(mf.get_ovlp(), 'AO overlap')
+        kinetic = _as_matrix(mol.intor('int1e_kin'), 'AO kinetic')
+        potential = _as_matrix(mol.intor('int1e_nuc'), 'AO potential')
+        if mol._ecp:
+            from pyscf.gto import ecp
+            potential += _as_matrix(ecp.ecp_int(mol), 'AO ECP potential')
+        core = kinetic + potential
+
+    overlap = np.ascontiguousarray(_ensure_real(_hermitize(overlap)))
+    kinetic = np.ascontiguousarray(_ensure_real(_hermitize(kinetic)))
+    potential = np.ascontiguousarray(_ensure_real(_hermitize(potential)))
+    core = np.ascontiguousarray(_ensure_real(_hermitize(core)))
+
+    if basis == 'AO':
+        _write_1e_int_eri(overlap, kinetic, potential, core, filename, backend, 'AO')
+        return
+
+    def _get_uks_coeff_pair(mf_obj):
+        coeff = mf_obj.mo_coeff
+        if isinstance(coeff, (list, tuple)) and len(coeff) == 2:
+            Ca, Cb = coeff
+        elif isinstance(coeff, np.ndarray) and coeff.ndim >= 3 and coeff.shape[0] == 2:
+            if coeff.ndim == 3:
+                Ca, Cb = coeff[0], coeff[1]
+            elif coeff.ndim == 4:
+                if coeff.shape[1] != 1:
+                    raise NotImplementedError(
+                        "Only single-k UKS/UHF is supported for MO one-electron integrals."
+                    )
+                Ca, Cb = coeff[0, 0], coeff[1, 0]
+            else:
+                raise ValueError(f"Unexpected mo_coeff shape: {coeff.shape}")
+        else:
+            raise TypeError("Unsupported mo_coeff layout for UKS/UHF object")
+        if Ca.ndim != 2 or Cb.ndim != 2:
+            raise ValueError(
+                f"Unexpected UKS/UHF mo_coeff shapes: Ca {Ca.shape}, Cb {Cb.shape}"
+            )
+        return Ca, Cb
+
+    def _get_rhf_coeff(mf_obj):
+        coeff = mf_obj.mo_coeff
+        if isinstance(coeff, np.ndarray):
+            if coeff.ndim == 2:
+                return coeff
+            if coeff.ndim == 3 and coeff.shape[0] == 1:
+                return coeff[0]
+        if isinstance(coeff, (list, tuple)) and len(coeff) == 1:
+            arr = np.asarray(coeff[0])
+            if arr.ndim == 2:
+                return arr
+        raise TypeError(
+            "Unsupported mo_coeff layout for RHF/RKS object in MO one-electron integrals"
+        )
+
+    if (
+        isinstance(mf.mo_coeff, (list, tuple)) and len(mf.mo_coeff) == 2
+    ) or (
+        isinstance(mf.mo_coeff, np.ndarray) and mf.mo_coeff.ndim >= 3 and mf.mo_coeff.shape[0] == 2
+    ):
+        Ca, Cb = _get_uks_coeff_pair(mf)
+        if is_pbc:
+            if Ca.ndim == 3 and Ca.shape[0] == 1:
+                Ca = Ca[0]
+            if Cb.ndim == 3 and Cb.shape[0] == 1:
+                Cb = Cb[0]
+            if Ca.ndim != 2 or Cb.ndim != 2:
+                raise NotImplementedError(
+                    "Only Gamma-point data are supported for MO one-electron integrals"
+                )
+        C = np.concatenate([Ca, Cb], axis=1)
+    else:
+        C = _get_rhf_coeff(mf)
+
+    if is_pbc and C.ndim == 3:
+        if C.shape[0] != 1:
+            raise NotImplementedError(
+                "MO one-electron integrals currently support single-k Gamma calculations only."
+            )
+        C = C[0]
+
+    if C.ndim != 2:
+        raise ValueError(f"MO coefficient matrix must be 2D, got shape {C.shape}")
+
+    def _ao_to_mo(mat, coeff):
+        return _hermitize(coeff.conj().T @ mat @ coeff)
+
+    mo_overlap = np.ascontiguousarray(_ensure_real(_ao_to_mo(overlap, C)))
+    mo_kinetic = np.ascontiguousarray(_ensure_real(_ao_to_mo(kinetic, C)))
+    mo_potential = np.ascontiguousarray(_ensure_real(_ao_to_mo(potential, C)))
+    mo_core = np.ascontiguousarray(_ensure_real(_ao_to_mo(core, C)))
+
+    _write_1e_int_eri(
+        mo_overlap, mo_kinetic, mo_potential, mo_core, filename, backend, 'MO'
+    )
+
+def _write_1e_int_eri(overlap, kinetic, potential, core, filename, backend='h5', basis='AO'):
+    basis = basis.upper()
+    if basis not in ('AO', 'MO'):
+        raise ValueError("basis must be either 'AO' or 'MO'")
+
+    overlap = np.ascontiguousarray(overlap)
+    kinetic = np.ascontiguousarray(kinetic)
+    potential = np.ascontiguousarray(potential)
+    core = np.ascontiguousarray(core)
+
+    with trexio.File(filename, 'u', back_end=_mode(backend)) as tf:
+        if basis == 'AO':
+            ao_dim = overlap.shape[0]
+            if not trexio.has_ao_num(tf):
+                trexio.write_ao_num(tf, ao_dim)
+            trexio.write_ao_1e_int_overlap(tf, overlap)
+            trexio.write_ao_1e_int_kinetic(tf, kinetic)
+            trexio.write_ao_1e_int_potential_n_e(tf, potential)
+            trexio.write_ao_1e_int_core_hamiltonian(tf, core)
+        else:
+            mo_dim = overlap.shape[0]
+            if not trexio.has_mo_num(tf):
+                trexio.write_mo_num(tf, mo_dim)
+            trexio.write_mo_1e_int_overlap(tf, overlap)
+            trexio.write_mo_1e_int_kinetic(tf, kinetic)
+            trexio.write_mo_1e_int_potential_n_e(tf, potential)
+            trexio.write_mo_1e_int_core_hamiltonian(tf, core)
 
 def _to_segment_contraction(mol):
     '''transform generally contracted basis to segment contracted basis
