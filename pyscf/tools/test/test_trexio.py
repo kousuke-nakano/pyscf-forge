@@ -8,6 +8,106 @@ import pytest
 ANGSTROM_TO_BOHR = 1.0 / 0.5291772083
 DIFF_TOL = 1e-10
 
+import numpy as np
+import types
+from pprint import pformat
+
+# 表示を見やすく
+np.set_printoptions(precision=6, suppress=True)
+
+def _is_attr(name, obj):
+    # 呼び出しで副作用のありそうなものやメソッドは除外
+    if name.startswith("__") and name.endswith("__"):
+        return False
+    try:
+        val = getattr(obj, name)
+    except Exception:
+        return False
+    if isinstance(val, (types.FunctionType, types.MethodType)):
+        return False
+    return True
+
+def _brief(val, maxlen=200):
+    """値を短く整形（numpy配列は shape / dtype / 最初の数値だけ）"""
+    try:
+        import numpy as np
+        if isinstance(val, np.ndarray):
+            head = val.ravel()[:6]
+            return f"ndarray(shape={val.shape}, dtype={val.dtype}, head={head})"
+    except Exception:
+        pass
+    s = repr(val)
+    if len(s) > maxlen:
+        s = s[:maxlen] + "...]trunc"
+    return s
+
+def dump_cell(cell, sort_private_last=True):
+    names = set(dir(cell)) | set(getattr(cell, "__dict__", {}).keys())
+    items = []
+    for n in names:
+        if not _is_attr(n, cell):
+            continue
+        try:
+            v = getattr(cell, n)
+        except Exception as e:
+            v = f"<error: {e!r}>"
+        items.append((n, v))
+    # 並べ替え（先に公開属性、後に _private）
+    if sort_private_last:
+        items.sort(key=lambda kv: (kv[0].startswith("_"), kv[0]))
+    else:
+        items.sort(key=lambda kv: kv[0])
+    # 文字列化
+    lines = []
+    for k, v in items:
+        lines.append(f"{k}: {_brief(v)}")
+    return "\n".join(lines)
+
+def diff_cells(c0, c1, atol=0.0, rtol=0.0, show_equal=False):
+    keys = sorted(set(dir(c0)) | set(getattr(c0, "__dict__", {}).keys()) |
+                  set(dir(c1)) | set(getattr(c1, "__dict__", {}).keys()))
+    diffs = []
+    equals = []
+    for k in keys:
+        if not _is_attr(k, c0) and not _is_attr(k, c1):
+            continue
+        try:
+            v0 = getattr(c0, k)
+        except Exception as e:
+            v0 = f"<error: {e!r}>"
+        try:
+            v1 = getattr(c1, k)
+        except Exception as e:
+            v1 = f"<error: {e!r}>"
+
+        same = False
+        # numpy配列は allclose/equal
+        try:
+            import numpy as np
+            if isinstance(v0, np.ndarray) and isinstance(v1, np.ndarray):
+                same = (v0.shape == v1.shape) and np.allclose(v0, v1, atol=atol, rtol=rtol, equal_nan=True)
+            elif isinstance(v0, (int, float, complex)) and isinstance(v1, (int, float, complex)):
+                same = np.isclose(v0, v1, atol=atol, rtol=rtol, equal_nan=True)
+            else:
+                same = (v0 == v1)
+        except Exception:
+            same = (repr(v0) == repr(v1))
+
+        if same:
+            if show_equal:
+                equals.append(f"{k}: {_brief(v0)}")
+        else:
+            diffs.append(f"[{k}]\n  c0: {_brief(v0)}\n  c1: {_brief(v1)}")
+
+    out = []
+    if diffs:
+        out.append("=== DIFFS ===")
+        out.append("\n".join(diffs))
+    if show_equal and equals:
+        out.append("\n=== EQUALS ===")
+        out.append("\n".join(equals))
+    return "\n".join(out) if out else "No differences under given tolerances."
+
 #################################################################
 # reading/writing `mol` from/to trexio file
 #################################################################
@@ -120,6 +220,11 @@ def test_cell_k_gamma_ae_6_31g(cart):
         s1 = cell1.pbc_intor('int1e_ovlp', kpts=kpt)
         t1 = cell1.pbc_intor('int1e_kin', kpts=kpt)
         v1 = cell1.pbc_intor('int1e_nuc', kpts=kpt)
+
+        print(dump_cell(cell0))
+        print(dump_cell(cell1))
+        print(diff_cells(cell0, cell1, atol=0.0, rtol=0.0, show_equal=False))
+
         assert abs(s0 - s1).max() < DIFF_TOL
         assert abs(t0 - t1).max() < DIFF_TOL
         assert abs(v0 - v1).max() < DIFF_TOL
