@@ -225,6 +225,17 @@ def test_cell_k_gamma_ae_6_31g(cart):
         print(dump_cell(cell1))
         print(diff_cells(cell0, cell1, atol=0.0, rtol=0.0, show_equal=False))
 
+        print("nuc_mod:", getattr(cell0, "nuc_mod", None), getattr(cell1, "nuc_mod", None))
+        print("precision:", cell0.precision, cell1.precision)
+        print("ew_eta:", getattr(cell0, "ew_eta", None), getattr(cell1, "ew_eta", None))
+        print("rcut:", getattr(cell0, "rcut", None), getattr(cell1, "rcut", None))
+        print("gs:", getattr(cell0, "gs", None), getattr(cell1, "gs", None))
+        print("mesh:", getattr(cell0, "mesh", None), getattr(cell1, "mesh", None))
+        print("cart:", cell0.cart, cell1.cart)
+        np.testing.assert_array_equal(cell0.atom_charges(), cell1.atom_charges())
+        np.testing.assert_allclose(cell0.bas_coords(), cell1.bas_coords(), rtol=0, atol=0)
+        np.testing.assert_equal(cell0._bas, cell1._bas)
+
         assert abs(s0 - s1).max() < DIFF_TOL
         assert abs(t0 - t1).max() < DIFF_TOL
         assert abs(v0 - v1).max() < DIFF_TOL
