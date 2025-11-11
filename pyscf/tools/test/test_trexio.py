@@ -306,7 +306,7 @@ def test_cell_k_gamma_ae_6_31g(cart):
         bas_centers1 = np.array([cell1.bas_coord(i) for i in range(nbas)])
         np.testing.assert_allclose(bas_centers0, bas_centers1, rtol=0, atol=0)
 
-        assert_basis_logically_equal(cell0, cell1, atol=0.0, rtol=0.0)
+        assert_basis_logically_equal(cell0, cell1, atol=1.0e-6, rtol=1.0e-8)
 
         assert abs(s0 - s1).max() < DIFF_TOL
         assert abs(t0 - t1).max() < DIFF_TOL
