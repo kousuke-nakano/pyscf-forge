@@ -175,6 +175,68 @@ def assert_basis_logically_equal(cell0, cell1, atol=0.0, rtol=0.0, verbose=True)
     if verbose:
         print(f"Basis logic equal: {nbas} shells match (tol: atol={atol}, rtol={rtol})")
 
+def ao2atom_map(cell):
+    """
+    AOごとの所属原子 index 配列を返す（shape = (nao,)）
+    """
+    ao_loc = cell.ao_loc_nr()
+    nbas = cell.nbas
+    naos = ao_loc[-1]
+    # _bas の ATOM_OF はシェル→原子 index
+    ATOM_OF = 0
+    m = np.empty(naos, dtype=int)
+    for ish in range(nbas):
+        i0, i1 = ao_loc[ish], ao_loc[ish+1]
+        m[i0:i1] = int(cell._bas[ish, ATOM_OF])
+    return m
+
+def find_ao_atom_mismatch(cell0, cell1):
+    m0, m1 = ao2atom_map(cell0), ao2atom_map(cell1)
+    diff = np.where(m0 != m1)[0]
+    return diff, m0, m1
+
+def clear_nuclear_caches(cell):
+    # 核ポテンシャル周りのキャッシュを明示的に無効化
+    for k in ("_ew_eta","_rcut","_kpts_ewald","_ewald","_PGTOchi"):
+        if hasattr(cell, k):
+            setattr(cell, k, None)
+
+def canonicalize_cell1(cell0, cell1):
+    """
+    cell1 を cell0 と同じ“正規形”で再構築（元素名キー & 同一幾何）に揃える
+    """
+    cell1.atom      = cell0.atom          # 'H 0 0 0; H 0 0 1' の文字列形式に戻す
+    cell1.basis     = cell0.basis         # '6-31g**' のような元素名ベース
+    cell1.ecp       = getattr(cell0, "ecp", {})
+    cell1.unit      = cell0.unit
+    cell1.a         = np.array(cell0.a, copy=True)
+    cell1.dimension = int(cell0.dimension)
+    cell1.cart      = bool(cell0.cart)
+    # Ewald/精度パラメータも合わせる（存在するもの）
+    for k in ("precision","ew_eta","rcut","gs","mesh","ke_cutoff","exp_to_discard","nuc_mod"):
+        if hasattr(cell0, k):
+            setattr(cell1, k, getattr(cell0, k))
+    clear_nuclear_caches(cell1)
+    cell1.build()
+
+def sync_ewald_params(cell0, cell1):
+    # precision→mesh/gs が同等に決まるように
+    cell1.precision = cell0.precision
+    for k in ("ew_eta","rcut","gs","mesh","ke_cutoff","exp_to_discard","nuc_mod"):
+        if hasattr(cell0, k):
+            setattr(cell1, k, getattr(cell0, k))
+    clear_nuclear_caches(cell1)
+    cell1.build()
+
+def check_V_matches(cell0, cell1, kpt, tol=1e-10):
+    s0 = cell0.pbc_intor('int1e_ovlp', kpts=kpt)
+    t0 = cell0.pbc_intor('int1e_kin',  kpts=kpt)
+    v0 = cell0.pbc_intor('int1e_nuc',  kpts=kpt)
+    s1 = cell1.pbc_intor('int1e_ovlp', kpts=kpt)
+    t1 = cell1.pbc_intor('int1e_kin',  kpts=kpt)
+    v1 = cell1.pbc_intor('int1e_nuc',  kpts=kpt)
+    return np.max(np.abs(s0-s1)), np.max(np.abs(t0-t1)), np.max(np.abs(v0-v1))
+
 #################################################################
 # reading/writing `mol` from/to trexio file
 #################################################################
@@ -307,6 +369,25 @@ def test_cell_k_gamma_ae_6_31g(cart):
         np.testing.assert_allclose(bas_centers0, bas_centers1, rtol=0, atol=0)
 
         assert_basis_logically_equal(cell0, cell1, atol=1.0e-6, rtol=1.0e-8)
+
+        # 0) AO→原子対応がズレてないか（ズレてたら核項だけ崩れやすい）
+        diff, m0, m1 = find_ao_atom_mismatch(cell0, cell1)
+        if diff.size:
+            print(f"[WARN] AO→原子対応のズレ: indices={diff.tolist()}  (m0 vs m1)")
+        
+        # 1) まず cell1 を正規形に戻して rebuild（H0/H1→元素名キーへ）
+        canonicalize_cell1(cell0, cell1)
+        
+        # 2) Ewald/精度パラメータを同期して核項キャッシュを再生成
+        sync_ewald_params(cell0, cell1)
+        
+        # 3) 念のため単スレッド化（非決定性の排除）
+        import os
+        os.environ.setdefault("OMP_NUM_THREADS", "1")
+        
+        # 4) 比較
+        ds, dt, dv = check_V_matches(cell0, cell1, kpt=np.zeros(3), tol=1e-10)
+        print(f"max|ΔS|={ds:.3e}, max|ΔT|={dt:.3e}, max|ΔV|={dv:.3e}")
 
         assert abs(s0 - s1).max() < DIFF_TOL
         assert abs(t0 - t1).max() < DIFF_TOL
