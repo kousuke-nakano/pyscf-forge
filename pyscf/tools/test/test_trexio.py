@@ -108,6 +108,73 @@ def diff_cells(c0, c1, atol=0.0, rtol=0.0, show_equal=False):
         out.append("\n".join(equals))
     return "\n".join(out) if out else "No differences under given tolerances."
 
+from pyscf.gto.mole import ANG_OF, NPRIM_OF, NCTR_OF, KAPPA_OF, PTR_EXP, PTR_COEFF
+
+def _extract_shell_params(cell, ish):
+    """
+    1つのシェル ish について、(l, nprim, nctr, kappa, exps[nprim], coefs[nprim,nctr]) を返す
+    """
+    bas = cell._bas[ish]
+    env = cell._env
+
+    l     = int(bas[ANG_OF])
+    nprim = int(bas[NPRIM_OF])
+    nctr  = int(bas[NCTR_OF])
+    kappa = int(bas[KAPPA_OF])
+
+    pexp  = int(bas[PTR_EXP])
+    pcoef = int(bas[PTR_COEFF])
+
+    # 実際の指数と係数を取り出す（係数は (nprim, nctr) に整形）
+    exps  = np.array(env[pexp:pexp + nprim], copy=False)
+    coefs = np.array(env[pcoef:pcoef + nprim*nctr], copy=False).reshape(nprim, nctr)
+
+    return l, nprim, nctr, kappa, exps, coefs
+
+def assert_basis_logically_equal(cell0, cell1, atol=0.0, rtol=0.0, verbose=True):
+    """
+    cell0 と cell1 の “論理的な基底内容” を比較して一致を主張する。
+    - ポインタや _env 配列内の位置（オフセット）は無視
+    - l, nprim, nctr, kappa, exponents, coeffs を厳密比較（指定の atol/rtol）
+    """
+    if cell0.nbas != cell1.nbas:
+        raise AssertionError(f"nbas differs: {cell0.nbas} vs {cell1.nbas}")
+
+    nbas = cell0.nbas
+    for ish in range(nbas):
+        l0, nprim0, nctr0, kappa0, exps0, coefs0 = _extract_shell_params(cell0, ish)
+        l1, nprim1, nctr1, kappa1, exps1, coefs1 = _extract_shell_params(cell1, ish)
+
+        # メタ情報
+        if (l0, nprim0, nctr0, kappa0) != (l1, nprim1, nctr1, kappa1):
+            msg = (f"Shell meta differs at ish={ish}: "
+                   f"(l,nprim,nctr,kappa) {l0,nprim0,nctr0,kappa0} "
+                   f"vs {l1,nprim1,nctr1,kappa1}")
+            raise AssertionError(msg)
+
+        # 指数
+        try:
+            np.testing.assert_allclose(exps0, exps1, rtol=rtol, atol=atol)
+        except AssertionError as e:
+            if verbose:
+                print(f"[exponents mismatch] ish={ish}")
+                print("exps0:", exps0)
+                print("exps1:", exps1)
+            raise
+
+        # 係数
+        try:
+            np.testing.assert_allclose(coefs0, coefs1, rtol=rtol, atol=atol)
+        except AssertionError as e:
+            if verbose:
+                print(f"[coeffs mismatch] ish={ish}")
+                print("coefs0:\n", coefs0)
+                print("coefs1:\n", coefs1)
+            raise
+
+    if verbose:
+        print(f"Basis logic equal: {nbas} shells match (tol: atol={atol}, rtol={rtol})")
+
 #################################################################
 # reading/writing `mol` from/to trexio file
 #################################################################
@@ -238,6 +305,8 @@ def test_cell_k_gamma_ae_6_31g(cart):
         nbas = cell1.nbas
         bas_centers1 = np.array([cell1.bas_coord(i) for i in range(nbas)])
         np.testing.assert_allclose(bas_centers0, bas_centers1, rtol=0, atol=0)
+
+        assert_basis_logically_equal(cell0, cell1, atol=0.0, rtol=0.0)
 
         assert abs(s0 - s1).max() < DIFF_TOL
         assert abs(t0 - t1).max() < DIFF_TOL
