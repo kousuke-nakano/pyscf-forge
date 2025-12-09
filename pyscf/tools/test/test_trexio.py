@@ -144,13 +144,25 @@ def test_mf_rhf_ae_6_31g(cart):
         trexio.to_trexio(mf0, filename)
         mf1 = trexio.scf_from_trexio(filename)
         assert abs(mf1.mo_coeff - mf0.mo_coeff).max() < DIFF_TOL
-
+        
 ## molecule, segment contraction (6-31g), all-electron, UHF
 @pytest.mark.parametrize("cart", [False, True], ids=["cart=false", "cart=true"])
 def test_mf_uhf_ae_6_31g(cart):
     with tempfile.TemporaryDirectory() as d:
         filename = os.path.join(d, 'test.h5')
         mol0 = pyscf.M(atom='H 0 0 0; H 0 0 1', basis='6-31g', spin=2, cart=cart)
+        mf0 = mol0.UHF().density_fit()
+        mf0.run()
+        trexio.to_trexio(mf0, filename)
+        mf1 = trexio.scf_from_trexio(filename)
+        assert abs(mf1.mo_coeff - mf0.mo_coeff).max() < DIFF_TOL
+        
+## molecule, segment contraction (6-31g), all-electron, UHF
+@pytest.mark.parametrize("cart", [False, True], ids=["cart=false", "cart=true"])
+def test_mf_uhf_ae_6_31g_(cart):
+    with tempfile.TemporaryDirectory() as d:
+        filename = os.path.join(d, 'test.h5')
+        mol0 = pyscf.M(atom='O 0 0 -0.60000; O 0 0 +0.60000', basis='6-31g', spin=4, cart=cart)
         mf0 = mol0.UHF().density_fit()
         mf0.run()
         trexio.to_trexio(mf0, filename)

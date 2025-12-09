@@ -11,6 +11,7 @@ Installation instruction:
     https://github.com/TREX-CoE/trexio/blob/master/python/README.md
 '''
 
+import os
 import re
 import math
 import numpy as np
@@ -30,6 +31,8 @@ from pyscf.pbc import gto as pbcgto
 import trexio
 
 def to_trexio(obj, filename, backend='h5', ci_threshold=None, chunk_size=None):
+    if os.path.isfile(filename):
+        os.remove(filename)
     with trexio.File(filename, 'u', back_end=_mode(backend)) as tf:
         if isinstance(obj, gto.Mole) or isinstance(obj, pbcgto.Cell):
             _mol_to_trexio(obj, tf)
@@ -227,7 +230,7 @@ def _scf_to_trexio(mf, trexio_file):
         if nk == 1:
             # 2.3 Periodic boundary calculations (pbc group)
             trexio.write_pbc_k_point_num(trexio_file, 1)
-            trexio.write_pbc_k_point(trexio_file, kpts)
+            trexio.write_pbc_k_point(trexio_file, kpts.ravel().tolist())
             trexio.write_pbc_k_point_weight(trexio_file, weights[np.newaxis])
 
             if isinstance(mf, (pbc.scf.uhf.UHF, pbc.dft.uks.UKS, pbc.scf.kuhf.KUHF, pbc.dft.kuks.KUKS)):
@@ -252,6 +255,7 @@ def _scf_to_trexio(mf, trexio_file):
                 assert num_mo_up + num_mo_dn == mo_num
                 mo=np.concatenate([mo_up, mo_dn], axis=0) # dim (num_mo, num_ao) but it is f-contiguous
                 mo_coefficient = np.ascontiguousarray(mo) # dim (num_mo, num_ao) and it is c-contiguous
+                assert len(mo_coefficient) == mo_num
                 if np.all(np.isreal(mo_coefficient)):
                     mo_coefficient_real = mo_coefficient
                     mo_coefficient_imag = None
@@ -259,7 +263,7 @@ def _scf_to_trexio(mf, trexio_file):
                     mo_coefficient_real = mo_coefficient.real
                     mo_coefficient_imag = mo_coefficient.imag
                 mo_occ = np.ravel(mf.mo_occ)
-                mo_spin = np.zeros(num_mo_up+num_mo_dn, dtype=int)
+                mo_spin = np.zeros(mo_num, dtype=int)
                 mo_spin[:num_mo_up] = 0
                 mo_spin[num_mo_up:] = 1
 
@@ -288,6 +292,12 @@ def _scf_to_trexio(mf, trexio_file):
                 mo_spin = np.zeros(mo_num, dtype=int)
             else:
                 raise NotImplementedError(f'Conversion function for {mf.__class__}')
+
+            assert len(mo_coefficient_real) == mo_num
+            if mo_coefficient_imag is not None:
+                assert len(mo_coefficient_imag) == mo_num
+            assert len(mo_occ) == mo_num
+            assert len(mo_spin) == mo_num
 
             # 4.2 Molecular orbitals (mo group)
             trexio.write_mo_type(trexio_file, mo_type)
@@ -366,6 +376,11 @@ def _scf_to_trexio(mf, trexio_file):
             mo_coefficient_imag_pbc = np.ascontiguousarray(np.vstack(mo_coefficient_imag_pbc)) # it is c-contiguous
             mo_occ_pbc = np.concatenate(mo_occ_pbc)
             mo_spin_pbc = np.concatenate(mo_spin_pbc)
+            
+            assert len(mo_coefficient_real_pbc) == mo_num_pbc
+            assert len(mo_coefficient_imag_pbc) == mo_num_pbc
+            assert len(mo_occ_pbc) == mo_num_pbc
+            assert len(mo_spin_pbc) == mo_num_pbc
 
             # 4.2 Molecular orbitals (mo group)
             trexio.write_mo_type(trexio_file, mo_type)
@@ -402,6 +417,10 @@ def _scf_to_trexio(mf, trexio_file):
             mo_coefficient = np.ascontiguousarray(mo) # dim (num_mo, num_ao) and it is c-contiguous
             mo_occ = mf.mo_occ
             mo_spin = np.zeros(mo_energy.size, dtype=int)
+        
+        assert len(mo_coefficient) == mo_num
+        assert len(mo_occ) == mo_num
+        assert len(mo_spin) == mo_num
 
         # 4.2 Molecular orbitals (mo group)
         trexio.write_mo_type(trexio_file, mo_type)
