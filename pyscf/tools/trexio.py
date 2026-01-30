@@ -414,39 +414,105 @@ def _scf_to_trexio(mf, trexio_file):
 def _cc_to_trexio(cc_obj, trexio_file):
     raise NotImplementedError
 
+def _get_cas_rdm1s(cas_obj, ncas):
+    neleca, nelecb = cas_obj.nelecas
+    if hasattr(cas_obj.fcisolver, 'make_rdm1s'):
+        rdm1a, rdm1b = cas_obj.fcisolver.make_rdm1s(cas_obj.ci, ncas, cas_obj.nelecas)
+    else:
+        rdm1 = cas_obj.fcisolver.make_rdm1(cas_obj.ci, ncas, cas_obj.nelecas)
+        total = neleca + nelecb
+        if total > 0:
+            rdm1a = rdm1 * (neleca / total)
+            rdm1b = rdm1 * (nelecb / total)
+        else:
+            rdm1a = rdm1 * 0.0
+            rdm1b = rdm1 * 0.0
+    return rdm1a, rdm1b
+
 def _mcscf_to_trexio(cas_obj, trexio_file, ci_threshold=0., chunk_size=100000):
     mol = cas_obj.mol
+    scf_obj = cas_obj._scf
     _mol_to_trexio(mol, trexio_file)
+
     mo_energy_cas = cas_obj.mo_energy
     mo_cas = cas_obj.mo_coeff
-    num_mo = mo_energy_cas.size
-    spin_cas = np.zeros(mo_energy_cas.size, dtype=int)
-    mo_type_cas = 'CAS'
-    trexio.write_mo_type(trexio_file, mo_type_cas)
     idx = _order_ao_index(mol)
-    trexio.write_mo_num(trexio_file, num_mo)
-    trexio.write_mo_coefficient(trexio_file, mo_cas[idx].T.ravel())
-    trexio.write_mo_energy(trexio_file, mo_energy_cas)
-    trexio.write_mo_spin(trexio_file, spin_cas)
 
     ncore = cas_obj.ncore
     ncas = cas_obj.ncas
-    mo_classes = np.array(["Virtual"] * num_mo, dtype=str)  # Initialize all MOs as Virtual
-    mo_classes[:ncore] = "Core"
-    mo_classes[ncore:ncore + ncas] = "Active"
-    trexio.write_mo_class(trexio_file, list(mo_classes))
 
-    occupation = np.zeros(num_mo)
-    occupation[:ncore] = 2.0
-    rdm1 = cas_obj.fcisolver.make_rdm1(cas_obj.ci, ncas, cas_obj.nelecas)
-    natural_occ = np.linalg.eigh(rdm1)[0]
-    occupation[ncore:ncore + ncas] = natural_occ[::-1]
-    occupation[ncore + ncas:] = 0.0
+    is_uhf = isinstance(scf_obj, (
+        scf.uhf.UHF,
+        dft.uks.UKS,
+        pbc.scf.kuhf.KUHF,
+        pbc.dft.kuks.KUKS,
+    ))
+    if is_uhf:
+        mo_type_cas = 'UHF'
+        mo_up, mo_dn = mo_cas
+        mo_up = mo_up[idx].T
+        mo_dn = mo_dn[idx].T
+        num_mo_up = mo_up.shape[0]
+        num_mo_dn = mo_dn.shape[0]
+        num_mo = num_mo_up + num_mo_dn
+        mo_coefficient = np.ascontiguousarray(np.concatenate([mo_up, mo_dn], axis=0))
+
+        if isinstance(mo_energy_cas, (tuple, list)) and len(mo_energy_cas) == 2:
+            mo_energy = np.concatenate([mo_energy_cas[0], mo_energy_cas[1]])
+        else:
+            mo_energy = np.ravel(mo_energy_cas)
+
+        mo_spin = np.zeros(num_mo, dtype=int)
+        mo_spin[num_mo_up:] = 1
+
+        mo_classes = np.array(["Virtual"] * num_mo, dtype=str)
+        mo_classes[:ncore] = "Core"
+        mo_classes[ncore:ncore + ncas] = "Active"
+        beta_start = num_mo_up
+        mo_classes[beta_start:beta_start + ncore] = "Core"
+        mo_classes[beta_start + ncore:beta_start + ncore + ncas] = "Active"
+
+        occ_alpha = np.zeros(num_mo_up)
+        occ_beta = np.zeros(num_mo_dn)
+        occ_alpha[:ncore] = 1.0
+        occ_beta[:ncore] = 1.0
+        rdm1a, rdm1b = _get_cas_rdm1s(cas_obj, ncas)
+        nat_occ_a = np.linalg.eigvalsh(rdm1a)[::-1]
+        nat_occ_b = np.linalg.eigvalsh(rdm1b)[::-1]
+        occ_alpha[ncore:ncore + ncas] = nat_occ_a
+        occ_beta[ncore:ncore + ncas] = nat_occ_b
+        occupation = np.concatenate([occ_alpha, occ_beta])
+
+    else:
+        mo_type_cas = 'CAS'
+        mo_energy = np.ravel(mo_energy_cas)
+        num_mo = mo_energy.size
+        mo = mo_cas[idx].T
+        mo_coefficient = np.ascontiguousarray(mo)
+        mo_spin = np.zeros(num_mo, dtype=int)
+
+        mo_classes = np.array(["Virtual"] * num_mo, dtype=str)
+        mo_classes[:ncore] = "Core"
+        mo_classes[ncore:ncore + ncas] = "Active"
+
+        occupation = np.zeros(num_mo)
+        occupation[:ncore] = 2.0
+        rdm1 = cas_obj.fcisolver.make_rdm1(cas_obj.ci, ncas, cas_obj.nelecas)
+        natural_occ = np.linalg.eigvalsh(rdm1)[::-1]
+        occupation[ncore:ncore + ncas] = natural_occ
+        occupation[ncore + ncas:] = 0.0
+
+    trexio.write_mo_type(trexio_file, mo_type_cas)
+    trexio.write_mo_num(trexio_file, num_mo)
+    trexio.write_mo_coefficient(trexio_file, mo_coefficient)
+    trexio.write_mo_energy(trexio_file, mo_energy)
+    trexio.write_mo_spin(trexio_file, mo_spin)
+    trexio.write_mo_class(trexio_file, list(mo_classes))
     trexio.write_mo_occupation(trexio_file, occupation)
 
-    total_elec_cas = sum(cas_obj.nelecas)
+    nelec_cas = cas_obj.nelecas
 
-    _det_to_trexio(cas_obj, ncas, total_elec_cas, trexio_file, ci_threshold, chunk_size)
+    _det_to_trexio(cas_obj, ncas, nelec_cas, trexio_file, ci_threshold, chunk_size)
 
 def mol_from_trexio(filename):
     with trexio.File(filename, 'r', back_end=trexio.TREXIO_AUTO) as tf:
@@ -870,20 +936,24 @@ def _group_by(a, keys):
 
 def _get_occsa_and_occsb(mcscf, norb, nelec, ci_threshold=0.):
     ci_coeff = mcscf.ci
-    num_determinants = int(np.sum(np.abs(ci_coeff) > ci_threshold))
-    occslst = fci.cistring.gen_occslst(range(norb), nelec // 2)
-    selected_occslst = occslst[:num_determinants]
+    if isinstance(nelec, (tuple, list, np.ndarray)) and len(nelec) == 2:
+        neleca, nelecb = nelec
+    else:
+        neleca = nelecb = nelec // 2
+
+    occslst_a = fci.cistring.gen_occslst(range(norb), neleca)
+    occslst_b = fci.cistring.gen_occslst(range(norb), nelecb)
 
     occsa = []
     occsb = []
     ci_values = []
 
-    for i in range(min(len(selected_occslst), mcscf.ci.shape[0])):
-        for j in range(min(len(selected_occslst), mcscf.ci.shape[1])):
+    for i in range(min(len(occslst_a), mcscf.ci.shape[0])):
+        for j in range(min(len(occslst_b), mcscf.ci.shape[1])):
             ci_coeff = mcscf.ci[i, j]
             if np.abs(ci_coeff) > ci_threshold:  # Check if CI coefficient is significant compared to user defined value
-                occsa.append(selected_occslst[i])
-                occsb.append(selected_occslst[j])
+                occsa.append(occslst_a[i])
+                occsb.append(occslst_b[j])
                 ci_values.append(ci_coeff)
 
     # Sort by the absolute value of the CI coefficients in descending order
@@ -891,22 +961,35 @@ def _get_occsa_and_occsb(mcscf, norb, nelec, ci_threshold=0.):
     occsa_sorted = [occsa[idx] for idx in sorted_indices]
     occsb_sorted = [occsb[idx] for idx in sorted_indices]
     ci_values_sorted = [ci_values[idx] for idx in sorted_indices]
+    num_determinants = len(ci_values_sorted)
 
     return occsa_sorted, occsb_sorted, ci_values_sorted, num_determinants
 
 def _det_to_trexio(mcscf, norb, nelec, trexio_file, ci_threshold=0., chunk_size=100000):
     ncore = mcscf.ncore
     int64_num = trexio.get_int64_num(trexio_file)
+    orb_num = ncore + norb
+    calc_int64_num = (orb_num + 63) // 64
+    try:
+        int64_num = int(int64_num)
+    except (TypeError, ValueError):
+        int64_num = 0
+    if int64_num <= 0:
+        int64_num = calc_int64_num
+    else:
+        int64_num = max(int64_num, calc_int64_num)
 
     occsa, occsb, ci_values, num_determinants = _get_occsa_and_occsb(mcscf, norb, nelec, ci_threshold)
 
     det_list = []
     for a, b, coeff in zip(occsa, occsb, ci_values):
-        occsa_upshifted = [orb for orb in range(ncore)] + [orb+ncore for orb in a]
-        occsb_upshifted = [orb for orb in range(ncore)] + [orb+ncore for orb in b]
-        det_tmp = []
-        det_tmp += trexio.to_bitfield_list(int64_num, occsa_upshifted)
-        det_tmp += trexio.to_bitfield_list(int64_num, occsb_upshifted)
+        occsa_upshifted = [orb for orb in range(ncore)] + [orb + ncore for orb in a]
+        occsb_upshifted = [orb for orb in range(ncore)] + [orb + ncore for orb in b]
+        occsa_upshifted = [int(orb) for orb in occsa_upshifted]
+        occsb_upshifted = [int(orb) for orb in occsb_upshifted]
+        det_a = np.asarray(trexio.to_bitfield_list(int64_num, occsa_upshifted), dtype=np.int64)
+        det_b = np.asarray(trexio.to_bitfield_list(int64_num, occsb_upshifted), dtype=np.int64)
+        det_tmp = np.hstack([det_a, det_b]).astype(np.int64, copy=False)
         det_list.append(det_tmp)
 
     if num_determinants > chunk_size:
